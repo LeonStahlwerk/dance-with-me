@@ -12,13 +12,13 @@ import {
 } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { createStackNavigator } from '@react-navigation/stack';
-import io from 'socket.io-client';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+// Removed socket.io-client in favour of HTTP polling
 
 // You should replace these with your Render deployment URLs.
 // When running locally use "http://localhost:4000/api" and "http://localhost:4000"
 const API_BASE = process.env.EXPO_PUBLIC_API_BASE || 'http://localhost:4000/api';
-const SOCKET_URL = process.env.EXPO_PUBLIC_SOCKET_URL || 'http://localhost:4000';
+// We no longer use WebSockets; chat uses HTTP polling
 
 /* -------------------------------------------------------------------------- */
 /*                              Events Screen                                 */
@@ -197,10 +197,9 @@ function ChatRoomScreen({ route }) {
   const { eventId, eventName } = route.params;
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
-  const socketRef = useRef(null);
   const userIdRef = useRef(null);
 
-  // For demo purposes, create a random user when the chat starts
+  // Create a random user when the chat starts
   const createAnonUser = async () => {
     try {
       const res = await fetch(`${API_BASE}/users`, {
@@ -215,38 +214,41 @@ function ChatRoomScreen({ route }) {
     }
   };
 
+  // Fetch messages from the server
   const fetchMessages = async () => {
-    // In a full implementation you would fetch existing messages from the server
-    setMessages([]);
+    try {
+      const res = await fetch(`${API_BASE}/messages/${eventId}`);
+      const data = await res.json();
+      setMessages(data);
+    } catch (err) {
+      console.error('Failed to load messages:', err);
+    }
   };
 
   useEffect(() => {
-    // Create anonymous user
     createAnonUser();
     fetchMessages();
-    // Connect socket
-    const socket = io(SOCKET_URL, { transports: ['websocket'] });
-    socketRef.current = socket;
-    socket.on('connect', () => {
-      socket.emit('joinEvent', eventId);
-    });
-    socket.on('message', (msg) => {
-      setMessages((prev) => [...prev, msg]);
-    });
+    // Poll for new messages every 3 seconds
+    const interval = setInterval(fetchMessages, 3000);
     return () => {
-      socket.emit('leaveEvent', eventId);
-      socket.disconnect();
+      clearInterval(interval);
     };
   }, [eventId]);
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     if (!input.trim()) return;
-    socketRef.current.emit('sendMessage', {
-      eventId,
-      userId: userIdRef.current,
-      text: input,
-    });
-    setInput('');
+    try {
+      const res = await fetch(`${API_BASE}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventId, userId: userIdRef.current, text: input }),
+      });
+      const newMessage = await res.json();
+      setMessages((prev) => [...prev, newMessage]);
+      setInput('');
+    } catch (err) {
+      console.error('Failed to send message:', err);
+    }
   };
 
   return (
@@ -279,7 +281,7 @@ function ChatRoomScreen({ route }) {
   );
 }
 
-const ChatStack = createStackNavigator();
+const ChatStack = createNativeStackNavigator();
 
 function ChatsTab() {
   return (

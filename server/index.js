@@ -105,6 +105,38 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
+// Messages
+// Get all messages for a given event
+app.get('/api/messages/:eventId', async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const messages = await Message.find({ event: eventId })
+      .populate('sender', 'name')
+      .sort({ createdAt: 1 });
+    res.json(messages);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch messages' });
+  }
+});
+
+// Create a new message
+app.post('/api/messages', async (req, res) => {
+  const { eventId, userId, text } = req.body;
+  if (!eventId || !userId || !text) {
+    return res.status(400).json({ error: 'Missing eventId, userId or text' });
+  }
+  try {
+    const msg = new Message({ text, sender: userId, event: eventId });
+    await msg.save();
+    const populatedMsg = await msg.populate('sender', 'name');
+    res.json(populatedMsg);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to create message' });
+  }
+});
+
 // Socket.IO for chat
 io.on('connection', (socket) => {
   console.log('User connected', socket.id);
